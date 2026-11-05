@@ -313,6 +313,37 @@ export default function App() {
     }
   };
 
+  // Handle shared files from WhatsApp / Android Share Target or File Handling API
+  useEffect(() => {
+    // 1. Check if app was opened via Android Share Sheet
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('shared') === 'true') {
+      if ('caches' in window) {
+        caches.open('vitalcon-shared-file').then(async (cache) => {
+          const res = await cache.match('/shared-invoice');
+          if (res) {
+            const blob = await res.blob();
+            const file = new File([blob], 'Factura_Recibida', { type: blob.type });
+            processSelectedFile(file);
+            await cache.delete('/shared-invoice');
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        });
+      }
+    }
+
+    // 2. LaunchQueue for File Handling API (Chrome on Android / Windows)
+    if ('launchQueue' in window) {
+      window.launchQueue.setConsumer(async (launchParams) => {
+        if (launchParams.files && launchParams.files.length > 0) {
+          const fileHandle = launchParams.files[0];
+          const file = await fileHandle.getFile();
+          processSelectedFile(file);
+        }
+      });
+    }
+  }, []);
+
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (file) processSelectedFile(file);
