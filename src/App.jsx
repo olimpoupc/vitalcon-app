@@ -31,6 +31,7 @@ import { calculateItemPricing, formatCOP } from './utils/pharmaCalculator';
 import { parseDrogasSSText, parseMomCsv } from './utils/invoiceParser';
 import { parseExcelFile } from './utils/universalExcelParser';
 import { exportToExcel } from './utils/excelExporter';
+import { exportToPDF } from './utils/pdfExporter';
 import { DROGAS_SS_RAW_TEXT, MOM_CSV_RAW } from './data/sampleInvoices';
 
 export default function App() {
@@ -124,6 +125,12 @@ export default function App() {
   // Export to Excel (.xlsx)
   const handleExportExcel = () => {
     exportToExcel(processedItems, invoiceTitle || 'Vitalcon_Precios', totals);
+    confetti({ particleCount: 40, spread: 70, origin: { y: 0.85 } });
+  };
+
+  // Export to PDF (.pdf)
+  const handleExportPDF = () => {
+    exportToPDF(processedItems, invoiceTitle || 'Vitalcon_Precios', totals, marginPercent);
     confetti({ particleCount: 40, spread: 70, origin: { y: 0.85 } });
   };
 
@@ -348,6 +355,15 @@ export default function App() {
           {rawItems.length > 0 && (
             <div className="flex items-center gap-1.5">
               <button
+                onClick={handleExportPDF}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md shadow-rose-950/20 active:scale-95 transition-all"
+                title="Descargar listado en PDF listo para imprimir o enviar"
+              >
+                <Download size={14} className="stroke-[2.4]" />
+                <span className="hidden sm:inline">PDF</span>
+              </button>
+
+              <button
                 onClick={handleExportExcel}
                 className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
                 title="Descargar archivo en Excel"
@@ -359,7 +375,7 @@ export default function App() {
               <button
                 onClick={handlePrint}
                 className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium px-2.5 py-1.5 rounded-xl border border-white/10 active:scale-95 transition-all"
-                title="Imprimir o Guardar en PDF"
+                title="Imprimir"
               >
                 <Printer size={15} />
                 <span className="hidden sm:inline">Imprimir</span>
@@ -722,23 +738,22 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Action Buttons Bar */}
-              <div className="flex items-center gap-2">
+              {/* Action Buttons Bar: Direct PDF + Excel Downloads */}
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={handleExportExcel}
-                  className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-800 to-teal-900 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-extrabold py-3 px-4 rounded-2xl shadow-md shadow-emerald-950/20 transition-all active:scale-98"
+                  onClick={handleExportPDF}
+                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-rose-700 via-rose-800 to-red-800 hover:from-rose-600 hover:to-red-700 text-white text-xs font-extrabold py-3 px-3.5 rounded-2xl shadow-md shadow-rose-950/20 transition-all active:scale-98"
                 >
-                  <FileSpreadsheet size={16} className="text-emerald-300" />
-                  <span>Descargar Archivo en Excel (.xlsx)</span>
+                  <Download size={16} className="text-rose-200 stroke-[2.4]" />
+                  <span>Descargar PDF (.pdf)</span>
                 </button>
 
                 <button
-                  onClick={handlePrint}
-                  className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold py-3 px-4 rounded-2xl shadow-xs transition-all active:scale-98"
-                  title="Imprimir listado físico"
+                  onClick={handleExportExcel}
+                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-800 to-teal-900 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-extrabold py-3 px-3.5 rounded-2xl shadow-md shadow-emerald-950/20 transition-all active:scale-98"
                 >
-                  <Printer size={16} />
-                  <span className="hidden sm:inline">Imprimir</span>
+                  <FileSpreadsheet size={16} className="text-emerald-300 stroke-[2.2]" />
+                  <span>Descargar Excel (.xlsx)</span>
                 </button>
               </div>
 
@@ -1025,13 +1040,25 @@ export default function App() {
               </span>
             </div>
 
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-2 bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs px-4 py-2.5 rounded-2xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
-            >
-              <Download size={15} />
-              <span>Exportar Excel</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportPDF}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-rose-700 to-red-800 hover:from-rose-600 hover:to-red-700 text-white font-black text-xs px-3.5 py-2.5 rounded-2xl shadow-md shadow-rose-950/20 active:scale-95 transition-all"
+                title="Descargar en PDF organizado"
+              >
+                <Download size={15} />
+                <span>PDF</span>
+              </button>
+
+              <button
+                onClick={handleExportExcel}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs px-3.5 py-2.5 rounded-2xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
+                title="Descargar en Excel"
+              >
+                <FileSpreadsheet size={15} />
+                <span>Excel</span>
+              </button>
+            </div>
           </div>
         </footer>
       )}
