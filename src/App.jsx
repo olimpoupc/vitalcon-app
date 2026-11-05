@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Search, 
   Upload, 
@@ -24,7 +24,8 @@ import {
   Coins, 
   Layers, 
   FileCheck2,
-  DollarSign
+  DollarSign,
+  Smartphone
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { calculateItemPricing, formatCOP } from './utils/pharmaCalculator';
@@ -53,6 +54,38 @@ export default function App() {
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [copiedId, setCopiedId] = useState(null);
+  
+  // PWA Install state
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    // Check if app is already running as standalone installed PWA
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+      setIsStandalone(true);
+    }
+
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      setShowInstallGuide(true);
+    }
+  };
   
   const fileInputRef = useRef(null);
 
@@ -352,7 +385,7 @@ export default function App() {
           </div>
 
           {/* Action buttons if invoice is loaded */}
-          {rawItems.length > 0 && (
+          {rawItems.length > 0 ? (
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleExportPDF}
@@ -390,6 +423,17 @@ export default function App() {
                 <span className="hidden sm:inline">Nueva</span>
               </button>
             </div>
+          ) : (
+            !isStandalone && (
+              <button
+                onClick={handleInstallClick}
+                className="flex items-center gap-1.5 bg-emerald-700/90 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-500/40 shadow-xs active:scale-95 transition-all"
+                title="Instalar aplicación en tu celular"
+              >
+                <Smartphone size={14} className="stroke-[2.2]" />
+                <span>Instalar App</span>
+              </button>
+            )
           )}
         </div>
 
@@ -428,8 +472,41 @@ export default function App() {
 
         {/* 1. BLANK STATE SCREEN: When no file is loaded */}
         {rawItems.length === 0 ? (
-          <div className="py-4 sm:py-8 space-y-6 animate-in fade-in zoom-in-98 duration-300">
+          <div className="py-4 sm:py-8 space-y-4 animate-in fade-in zoom-in-98 duration-300">
             
+            {/* Install App Banner for Mobile */}
+            {!isStandalone && (
+              <div 
+                onClick={handleInstallClick}
+                className="bg-gradient-to-r from-emerald-800 via-emerald-900 to-teal-950 text-white rounded-3xl p-4 sm:p-5 flex items-center justify-between cursor-pointer shadow-lg shadow-emerald-950/20 hover:shadow-xl transition-all border border-emerald-600/30 group active:scale-98"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-2xl shadow-md shrink-0">
+                    📲
+                  </div>
+                  <div className="text-left space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs sm:text-sm font-black text-white group-hover:text-emerald-200 transition-colors">
+                        ¿Instalar Vitalcon como App en tu celular?
+                      </p>
+                      <span className="text-[10px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/30 px-1.5 py-0.2 rounded-md font-bold uppercase">
+                        Gratis
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-200/90 leading-tight">
+                      Funciona a pantalla completa igual que una app descargada de la tienda.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs font-black bg-white text-emerald-950 px-3.5 py-2 rounded-xl shrink-0 group-hover:bg-emerald-100 shadow-sm transition-colors"
+                >
+                  Instalar
+                </button>
+              </div>
+            )}
+
             {/* Hero Card */}
             <div className="bg-white rounded-3xl p-6 sm:p-10 border border-slate-200/80 shadow-xl shadow-slate-200/50 text-center space-y-6 relative overflow-hidden">
               
@@ -1061,6 +1138,77 @@ export default function App() {
             </div>
           </div>
         </footer>
+      )}
+
+      {/* PWA Install Guide Modal */}
+      {showInstallGuide && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 no-print animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
+            
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-xl font-bold">
+                  📲
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base leading-tight">
+                    Instalar en tu Celular
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Úsala como una app normal sin entrar al navegador
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInstallGuide(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Android Instructions */}
+            <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <p className="text-xs font-black text-slate-900">En Android (Celular de Mamá):</p>
+              </div>
+              <ol className="text-xs text-slate-600 space-y-1.5 list-decimal list-inside font-medium">
+                <li>Abre el enlace en <b>Google Chrome</b>.</li>
+                <li>Toca los <b>tres puntos (⋮)</b> arriba a la derecha.</li>
+                <li>Selecciona <b>"Instalar aplicación"</b> (o *"Agregar a pantalla principal"*).</li>
+                <li>¡Listo! Se creará el ícono en la pantalla con el logo de Vitalcon.</li>
+              </ol>
+            </div>
+
+            {/* iPhone Instructions */}
+            <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🍏</span>
+                <p className="text-xs font-black text-slate-900">En iPhone (Safari):</p>
+              </div>
+              <ol className="text-xs text-slate-600 space-y-1.5 list-decimal list-inside font-medium">
+                <li>Abre el enlace en <b>Safari</b>.</li>
+                <li>Toca el botón <b>Compartir ⎋</b> (el cuadro con flecha hacia arriba abajo).</li>
+                <li>Baja en el menú y toca <b>"Agregar a pantalla de inicio" (+)</b>.</li>
+                <li>Toca "Agregar" arriba a la derecha.</li>
+              </ol>
+            </div>
+
+            {/* Security note */}
+            <div className="p-3 bg-emerald-50 text-emerald-900 text-[11px] rounded-xl border border-emerald-200 leading-tight">
+              💡 <b>Nota importante:</b> Para que el celular permita instalarla como app, asegúrate de abrirla desde tu enlace seguro de Vercel (con <b>https://</b>).
+            </div>
+
+            <button
+              onClick={() => setShowInstallGuide(false)}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs rounded-2xl transition-all shadow-md active:scale-98"
+            >
+              Entendido
+            </button>
+
+          </div>
+        </div>
       )}
 
     </div>
