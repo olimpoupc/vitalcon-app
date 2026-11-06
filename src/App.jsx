@@ -389,8 +389,8 @@ export default function App() {
     }
   };
 
-  // Share with Mom by WhatsApp
-  const handleShareWithMomWhatsApp = async () => {
+  // Share link via WhatsApp
+  const handleShareWhatsApp = async () => {
     if (rawItems.length === 0) return;
 
     let invoiceId = currentInvoiceId;
@@ -407,7 +407,7 @@ export default function App() {
     
     const shareUrl = `${baseUrl}/?id=${encodeURIComponent(invoiceId)}`;
 
-    const message = `*Droguería Vitalcon* 💊\n\nHola mami, ya te cargué el pedido *${invoiceTitle}* con +${marginPercent}% de ganancia y el menudeo de pastillas listo.\n\n👉 *Toca este enlace para abrirlo en tu celular:*\n${shareUrl}`;
+    const message = `Hola, aquí está la factura:\n${shareUrl}`;
 
     // Open WhatsApp
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
@@ -558,7 +558,7 @@ export default function App() {
           <div className="bg-white rounded-3xl p-6 text-center space-y-3 shadow-2xl max-w-xs w-full">
             <Loader2 size={36} className="animate-spin text-emerald-600 mx-auto" />
             <p className="text-sm font-extrabold text-slate-900">Abriendo factura desde la nube...</p>
-            <p className="text-xs text-slate-500">Cargando los precios y el menudeo para tu mamá.</p>
+            <p className="text-xs text-slate-500">Cargando los precios y detalles calculados.</p>
           </div>
         </div>
       )}
@@ -823,7 +823,7 @@ export default function App() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-slate-800">Nube & WhatsApp</p>
-                    <p className="text-[11px] text-slate-500 leading-snug">Sube desde el PC y compártelo directo a mamá.</p>
+                    <p className="text-[11px] text-slate-500 leading-snug">Sube la factura y compártela mediante enlace directo.</p>
                   </div>
                 </div>
 
@@ -914,13 +914,13 @@ export default function App() {
           /* 2. LOADED INVOICE VIEW: Dashboard and Product List */
           <div className="space-y-4 animate-in fade-in duration-200">
             
-            {/* HERO BAR: Compartir con Mamá por WhatsApp (Primary Feature for Brother) */}
+            {/* HERO BAR: Compartir factura por WhatsApp */}
             <div className="no-print bg-gradient-to-r from-emerald-800 via-teal-800 to-emerald-900 text-white rounded-3xl p-4 sm:p-5 shadow-lg shadow-emerald-950/20 border border-emerald-600/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">📲</span>
                   <h3 className="text-sm font-extrabold text-white">
-                    Compartir este pedido listo con Mamá
+                    Compartir factura por WhatsApp
                   </h3>
                   {isCloudSaved && (
                     <span className="text-[10px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
@@ -929,7 +929,7 @@ export default function App() {
                   )}
                 </div>
                 <p className="text-xs text-emerald-200/90 leading-snug">
-                  Mándale el enlace por WhatsApp para que ella solo lo abra en su celular y marque los precios.
+                  Envía el enlace para consultar la factura con los precios calculados desde cualquier dispositivo.
                 </p>
               </div>
 
@@ -949,7 +949,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={handleShareWithMomWhatsApp}
+                  onClick={handleShareWhatsApp}
                   disabled={isSavingToCloud}
                   className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-white text-xs font-black py-2.5 px-4 rounded-2xl shadow-md shadow-emerald-950/30 transition-all active:scale-95"
                 >
@@ -1388,9 +1388,9 @@ export default function App() {
 
             <div className="flex items-center gap-1.5 sm:gap-2">
               <button
-                onClick={handleShareWithMomWhatsApp}
+                onClick={handleShareWhatsApp}
                 className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black text-xs px-3 sm:px-3.5 py-2.5 rounded-2xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
-                title="Compartir con Mamá por WhatsApp"
+                title="Compartir por WhatsApp"
               >
                 <MessageCircle size={15} className="fill-white stroke-none" />
                 <span className="hidden sm:inline">WhatsApp</span>
@@ -1458,7 +1458,7 @@ export default function App() {
                   <span className="text-3xl">☁️</span>
                   <p className="text-sm font-bold text-slate-700">Aún no hay facturas guardadas en la nube</p>
                   <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                    Cuando tu hermano o tu mamá carguen una factura, toquen el botón "Guardar Nube" o "Compartir WhatsApp" para archivarla aquí.
+                    Al cargar una factura, toca el botón "Guardar Nube" o "Compartir WhatsApp" para archivarla aquí.
                   </p>
                 </div>
               ) : (
@@ -1552,7 +1552,7 @@ export default function App() {
             <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🤖</span>
-                <p className="text-xs font-black text-slate-900">En Android (Celular de Mamá):</p>
+                <p className="text-xs font-black text-slate-900">En Android:</p>
               </div>
               <ol className="text-xs text-slate-600 space-y-1.5 list-decimal list-inside font-medium">
                 <li>Abre el enlace en <b>Google Chrome</b>.</li>
