@@ -25,7 +25,15 @@ import {
   Layers, 
   FileCheck2,
   DollarSign,
-  Smartphone
+  Smartphone,
+  Cloud,
+  Share2,
+  History,
+  MessageCircle,
+  Trash2,
+  ExternalLink,
+  Clock,
+  Loader2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { calculateItemPricing, formatCOP } from './utils/pharmaCalculator';
@@ -33,12 +41,19 @@ import { parseDrogasSSText, parseMomCsv } from './utils/invoiceParser';
 import { parseExcelFile } from './utils/universalExcelParser';
 import { exportToExcel } from './utils/excelExporter';
 import { exportToPDF } from './utils/pdfExporter';
+import { 
+  saveInvoiceToCloud, 
+  getInvoiceFromCloud, 
+  getRecentInvoicesFromCloud, 
+  deleteInvoiceFromCloud 
+} from './services/firebase';
 import { DROGAS_SS_RAW_TEXT, MOM_CSV_RAW } from './data/sampleInvoices';
 
 export default function App() {
   // App state - Starts BLANK by default
   const [rawItems, setRawItems] = useState([]);
   const [invoiceTitle, setInvoiceTitle] = useState('');
+  const [currentInvoiceId, setCurrentInvoiceId] = useState('');
   
   // Settings
   const [marginPercent, setMarginPercent] = useState(25);
@@ -48,6 +63,15 @@ export default function App() {
   
   // Drag & drop state
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Cloud & History states
+  const [isSavingToCloud, setIsSavingToCloud] = useState(false);
+  const [isCloudSaved, setIsCloudSaved] = useState(false);
+  const [isLoadingFromCloud, setIsLoadingFromCloud] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyList, setHistoryList] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [cloudToast, setCloudToast] = useState('');
   
   // Tagged items tracking (checklist for shelving / tagging prices)
   const [taggedCodes, setTaggedCodes] = useState({});
@@ -59,6 +83,12 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+
+  // Toast feedback helper
+  const showToast = (msg) => {
+    setCloudToast(msg);
+    setTimeout(() => setCloudToast(''), 3000);
+  };
 
   useEffect(() => {
     // Check if app is already running as standalone installed PWA
@@ -177,9 +207,13 @@ export default function App() {
     if (confirm('¿Deseas limpiar la pantalla para cargar una nueva factura?')) {
       setRawItems([]);
       setInvoiceTitle('');
+      setCurrentInvoiceId('');
+      setIsCloudSaved(false);
       setTaggedCodes({});
       setSearchTerm('');
       setUploadError('');
+      // Clean query string
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   };
 
@@ -187,7 +221,9 @@ export default function App() {
   const loadDrogasSS = () => {
     const items = parseDrogasSSText(DROGAS_SS_RAW_TEXT);
     setRawItems(items);
-    setInvoiceTitle('Pedido Drogas S&S S.A.S. (167 productos)');
+    setInvoiceTitle('Pedido Drogas S&S CR 33303 (167 productos)');
+    setCurrentInvoiceId('CR-33303');
+    setIsCloudSaved(false);
     setTaggedCodes({});
     setUploadError('');
     confetti({ particleCount: 45, spread: 70, origin: { y: 0.8 } });
@@ -196,7 +232,9 @@ export default function App() {
   const loadMomCsv = () => {
     const items = parseMomCsv(MOM_CSV_RAW);
     setRawItems(items);
-    setInvoiceTitle('Pedido Medicamentos Genéricos y de Marca (114 productos)');
+    setInvoiceTitle('Pedido Medicamentos Genéricos CR 32239 (114 productos)');
+    setCurrentInvoiceId('CR-32239');
+    setIsCloudSaved(false);
     setTaggedCodes({});
     setUploadError('');
     confetti({ particleCount: 45, spread: 70, origin: { y: 0.8 } });
@@ -208,6 +246,7 @@ export default function App() {
 
     setUploadError('');
     setIsProcessingFile(true);
+    setIsCloudSaved(false);
 
     try {
       const fileNameLower = file.name.toLowerCase();
@@ -219,7 +258,9 @@ export default function App() {
 
         if (parsed.length > 0) {
           setRawItems(parsed);
-          setInvoiceTitle(file.name.replace(/\.[^/.]+$/, ''));
+          const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+          setInvoiceTitle(cleanTitle);
+          setCurrentInvoiceId('');
           setTaggedCodes({});
           confetti({ particleCount: 60, spread: 80, origin: { y: 0.7 } });
         } else {
@@ -239,7 +280,9 @@ export default function App() {
           }
           if (parsed.length > 0) {
             setRawItems(parsed);
-            setInvoiceTitle(file.name.replace(/\.[^/.]+$/, ''));
+            const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+            setInvoiceTitle(cleanTitle);
+            setCurrentInvoiceId('');
             setTaggedCodes({});
             confetti({ particleCount: 50, spread: 70, origin: { y: 0.7 } });
           } else {
@@ -295,7 +338,9 @@ export default function App() {
 
         if (parsed.length > 0) {
           setRawItems(parsed);
-          setInvoiceTitle(file.name.replace(/\.[^/.]+$/, ''));
+          const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+          setInvoiceTitle(cleanTitle);
+          setCurrentInvoiceId('');
           setTaggedCodes({});
           confetti({ particleCount: 60, spread: 80, origin: { y: 0.7 } });
         } else {
@@ -313,10 +358,133 @@ export default function App() {
     }
   };
 
-  // Handle shared files from WhatsApp / Android Share Target or File Handling API
+  // -------------------------------------------------------------
+  // CLOUD DATABASE & WHATSAPP SHARING ACTIONS
+  // -------------------------------------------------------------
+
+  // Save current invoice to Firestore
+  const handleSaveToCloud = async () => {
+    if (rawItems.length === 0) return;
+    setIsSavingToCloud(true);
+
+    const result = await saveInvoiceToCloud({
+      id: currentInvoiceId,
+      title: invoiceTitle,
+      rawItems,
+      marginPercent,
+      totals
+    });
+
+    setIsSavingToCloud(false);
+
+    if (result.success) {
+      setCurrentInvoiceId(result.id);
+      setIsCloudSaved(true);
+      showToast(`¡Factura guardada en la nube con código #${result.id}!`);
+      confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
+      return result.id;
+    } else {
+      alert('Error guardando en la nube: ' + result.error);
+      return null;
+    }
+  };
+
+  // Share with Mom by WhatsApp
+  const handleShareWithMomWhatsApp = async () => {
+    if (rawItems.length === 0) return;
+
+    let invoiceId = currentInvoiceId;
+    // If not saved to cloud yet, save it first!
+    if (!invoiceId || !isCloudSaved) {
+      invoiceId = await handleSaveToCloud();
+      if (!invoiceId) return;
+    }
+
+    // Generate public link
+    const baseUrl = window.location.hostname === 'localhost' 
+      ? 'https://drogueria-vitalcon.vercel.app' 
+      : window.location.origin;
+    
+    const shareUrl = `${baseUrl}/?id=${encodeURIComponent(invoiceId)}`;
+
+    const message = `*Droguería Vitalcon* 💊\n\nHola mami, ya te cargué el pedido *${invoiceTitle}* con +${marginPercent}% de ganancia y el menudeo de pastillas listo.\n\n👉 *Toca este enlace para abrirlo en tu celular:*\n${shareUrl}`;
+
+    // Open WhatsApp
+    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank');
+
+    // Also copy to clipboard for convenience
+    navigator.clipboard.writeText(shareUrl);
+    showToast('¡Enlace copiado y listo para WhatsApp!');
+  };
+
+  // Open History modal and load invoices
+  const handleOpenHistory = async () => {
+    setShowHistoryModal(true);
+    setIsLoadingHistory(true);
+    const list = await getRecentInvoicesFromCloud(30);
+    setHistoryList(list);
+    setIsLoadingHistory(false);
+  };
+
+  // Load a historical invoice from the list
+  const handleSelectHistoricalInvoice = (inv) => {
+    if (inv && inv.rawItems && inv.rawItems.length > 0) {
+      setRawItems(inv.rawItems);
+      setInvoiceTitle(inv.title || `Factura #${inv.id}`);
+      setCurrentInvoiceId(inv.id);
+      if (inv.marginPercent) setMarginPercent(inv.marginPercent);
+      setIsCloudSaved(true);
+      setShowHistoryModal(false);
+      setTaggedCodes({});
+      showToast(`Cargada Factura #${inv.id}`);
+      confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
+    }
+  };
+
+  // Delete invoice from cloud
+  const handleDeleteInvoice = async (e, id) => {
+    e.stopPropagation();
+    if (confirm(`¿Estás seguro de eliminar la factura #${id} de la nube?`)) {
+      const ok = await deleteInvoiceFromCloud(id);
+      if (ok) {
+        setHistoryList(prev => prev.filter(item => item.id !== id));
+        if (currentInvoiceId === id) {
+          setIsCloudSaved(false);
+        }
+        showToast('Factura eliminada de la nube');
+      }
+    }
+  };
+
+  // -------------------------------------------------------------
+  // INITIAL LOAD HANDLERS: Check URL parameters (?id=... / ?f=...)
+  // -------------------------------------------------------------
   useEffect(() => {
-    // 1. Check if app was opened via Android Share Sheet
     const urlParams = new URLSearchParams(window.location.search);
+    const targetId = urlParams.get('id') || urlParams.get('f') || urlParams.get('pedido');
+
+    if (targetId) {
+      setIsLoadingFromCloud(true);
+      getInvoiceFromCloud(targetId)
+        .then((data) => {
+          if (data && data.rawItems && data.rawItems.length > 0) {
+            setRawItems(data.rawItems);
+            setInvoiceTitle(data.title || `Factura #${data.id}`);
+            setCurrentInvoiceId(data.id);
+            if (data.marginPercent) setMarginPercent(data.marginPercent);
+            setIsCloudSaved(true);
+            confetti({ particleCount: 50, spread: 80, origin: { y: 0.7 } });
+          } else {
+            setUploadError(`No se encontró la factura #${targetId} en la nube.`);
+          }
+        })
+        .finally(() => {
+          setIsLoadingFromCloud(false);
+        });
+    }
+
+    // Handle shared files from WhatsApp / Android Share Target or File Handling API
     if (urlParams.get('shared') === 'true') {
       if ('caches' in window) {
         caches.open('vitalcon-shared-file').then(async (cache) => {
@@ -332,7 +500,7 @@ export default function App() {
       }
     }
 
-    // 2. LaunchQueue for File Handling API (Chrome on Android / Windows)
+    // LaunchQueue for File Handling API (Chrome on Android / Windows)
     if ('launchQueue' in window) {
       window.launchQueue.setConsumer(async (launchParams) => {
         if (launchParams.files && launchParams.files.length > 0) {
@@ -376,6 +544,25 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-50 to-slate-100 text-slate-800 antialiased font-sans">
       
+      {/* Toast Notification */}
+      {cloudToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-2xl shadow-xl border border-slate-700 animate-in fade-in slide-in-from-top-4 duration-200 flex items-center gap-2">
+          <Sparkles size={14} className="text-emerald-400" />
+          <span>{cloudToast}</span>
+        </div>
+      )}
+
+      {/* Loading from cloud indicator */}
+      {isLoadingFromCloud && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 text-center space-y-3 shadow-2xl max-w-xs w-full">
+            <Loader2 size={36} className="animate-spin text-emerald-600 mx-auto" />
+            <p className="text-sm font-extrabold text-slate-900">Abriendo factura desde la nube...</p>
+            <p className="text-xs text-slate-500">Cargando los precios y el menudeo para tu mamá.</p>
+          </div>
+        </div>
+      )}
+
       {/* Printable Report Header */}
       <div className="print-only p-8 border-b-2 border-black mb-6">
         <div className="flex justify-between items-center">
@@ -406,7 +593,7 @@ export default function App() {
                   Vitalcon
                 </h1>
                 <span className="text-[10px] bg-emerald-700/80 text-emerald-200 border border-emerald-500/30 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                  Precios & Menudeo
+                  Nube & Menudeo
                 </span>
               </div>
               <p className="text-[11px] text-emerald-200/90 font-medium">
@@ -415,57 +602,61 @@ export default function App() {
             </div>
           </div>
 
-          {/* Action buttons if invoice is loaded */}
-          {rawItems.length > 0 ? (
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={handleExportPDF}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md shadow-rose-950/20 active:scale-95 transition-all"
-                title="Descargar listado en PDF listo para imprimir o enviar"
-              >
-                <Download size={14} className="stroke-[2.4]" />
-                <span className="hidden sm:inline">PDF</span>
-              </button>
+          {/* Action buttons in header */}
+          <div className="flex items-center gap-1.5">
+            
+            {/* Open Cloud History button */}
+            <button
+              onClick={handleOpenHistory}
+              className="flex items-center gap-1 bg-white/10 hover:bg-white/20 text-emerald-100 text-xs font-bold px-2.5 py-1.5 rounded-xl border border-white/10 active:scale-95 transition-all"
+              title="Ver historial de facturas en la nube"
+            >
+              <History size={14} className="text-emerald-300" />
+              <span className="hidden sm:inline">Historial</span>
+            </button>
 
-              <button
-                onClick={handleExportExcel}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
-                title="Descargar archivo en Excel"
-              >
-                <FileSpreadsheet size={15} className="stroke-[2.2]" />
-                <span className="hidden sm:inline">Excel</span>
-              </button>
+            {rawItems.length > 0 ? (
+              <>
+                <button
+                  onClick={handleExportPDF}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md shadow-rose-950/20 active:scale-95 transition-all"
+                  title="Descargar listado en PDF listo para imprimir o enviar"
+                >
+                  <Download size={14} className="stroke-[2.4]" />
+                  <span className="hidden sm:inline">PDF</span>
+                </button>
 
-              <button
-                onClick={handlePrint}
-                className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium px-2.5 py-1.5 rounded-xl border border-white/10 active:scale-95 transition-all"
-                title="Imprimir"
-              >
-                <Printer size={15} />
-                <span className="hidden sm:inline">Imprimir</span>
-              </button>
+                <button
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
+                  title="Descargar archivo en Excel"
+                >
+                  <FileSpreadsheet size={15} className="stroke-[2.2]" />
+                  <span className="hidden sm:inline">Excel</span>
+                </button>
 
-              <button
-                onClick={handleReset}
-                className="flex items-center gap-1 bg-white/10 hover:bg-rose-500/80 text-emerald-200 hover:text-white text-xs font-medium p-1.5 sm:px-2.5 rounded-xl border border-white/10 active:scale-95 transition-all"
-                title="Cargar otra factura"
-              >
-                <RotateCcw size={14} />
-                <span className="hidden sm:inline">Nueva</span>
-              </button>
-            </div>
-          ) : (
-            !isStandalone && (
-              <button
-                onClick={handleInstallClick}
-                className="flex items-center gap-1.5 bg-emerald-700/90 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-500/40 shadow-xs active:scale-95 transition-all"
-                title="Instalar aplicación en tu celular"
-              >
-                <Smartphone size={14} className="stroke-[2.2]" />
-                <span>Instalar App</span>
-              </button>
-            )
-          )}
+                <button
+                  onClick={handleReset}
+                  className="flex items-center gap-1 bg-white/10 hover:bg-rose-500/80 text-emerald-200 hover:text-white text-xs font-medium p-1.5 sm:px-2 rounded-xl border border-white/10 active:scale-95 transition-all"
+                  title="Cargar otra factura"
+                >
+                  <RotateCcw size={14} />
+                  <span className="hidden sm:inline">Nueva</span>
+                </button>
+              </>
+            ) : (
+              !isStandalone && (
+                <button
+                  onClick={handleInstallClick}
+                  className="flex items-center gap-1.5 bg-emerald-700/90 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl border border-emerald-500/40 shadow-xs active:scale-95 transition-all"
+                  title="Instalar aplicación en tu celular"
+                >
+                  <Smartphone size={14} className="stroke-[2.2]" />
+                  <span>Instalar App</span>
+                </button>
+              )
+            )}
+          </div>
         </div>
 
         {/* Invoice Title & Progress (if active) */}
@@ -477,9 +668,11 @@ export default function App() {
                 <span className="font-bold text-white truncate text-xs">
                   {invoiceTitle}
                 </span>
-                <span className="text-[10px] bg-emerald-800/80 text-emerald-200 px-2 py-0.5 rounded-full font-mono-num font-semibold shrink-0">
-                  {rawItems.length} productos
-                </span>
+                {currentInvoiceId && (
+                  <span className="text-[10px] bg-emerald-800 text-emerald-200 border border-emerald-600/40 px-1.5 py-0.2 rounded font-mono-num shrink-0 font-bold">
+                    #{currentInvoiceId}
+                  </span>
+                )}
               </div>
 
               <div className="text-right text-[11px] text-emerald-200/90 shrink-0 font-medium">
@@ -525,7 +718,7 @@ export default function App() {
                       </span>
                     </div>
                     <p className="text-[11px] text-emerald-200/90 leading-tight">
-                      Funciona a pantalla completa igual que una app descargada de la tienda.
+                      Abre a pantalla completa igual que una app descargada.
                     </p>
                   </div>
                 </div>
@@ -552,10 +745,10 @@ export default function App() {
 
               <div className="space-y-2 max-w-md mx-auto relative z-10">
                 <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-tight">
-                  Calculadora de Precios y Menudeo
+                  Control de Precios y Menudeo
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                  Sube el pedido de <b>cualquier distribuidor</b> (medicamentos genéricos, de marca, aseo o cosméticos). El sistema calcula el precio de venta por caja y por pastilla.
+                  Sube el pedido de cualquier distribuidor farmacéutico. El sistema calcula los precios de vitrina y el precio de cada pastilla.
                 </p>
               </div>
 
@@ -626,11 +819,11 @@ export default function App() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-left max-w-lg mx-auto">
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/70 flex items-start gap-2.5 shadow-2xs">
                   <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0">
-                    ✓
+                    ☁️
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-800">IVA Automático</p>
-                    <p className="text-[11px] text-slate-500 leading-snug">Calcula el 19% o 0% exento para genéricos.</p>
+                    <p className="text-xs font-bold text-slate-800">Nube & WhatsApp</p>
+                    <p className="text-[11px] text-slate-500 leading-snug">Sube desde el PC y compártelo directo a mamá.</p>
                   </div>
                 </div>
 
@@ -649,8 +842,8 @@ export default function App() {
                     📥
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-800">Exportar Excel</p>
-                    <p className="text-[11px] text-slate-500 leading-snug">Descarga tu pedido formateado en 1 clic.</p>
+                    <p className="text-xs font-bold text-slate-800">PDF & Excel</p>
+                    <p className="text-[11px] text-slate-500 leading-snug">Descarga en 1 clic para imprimir o archivar.</p>
                   </div>
                 </div>
               </div>
@@ -721,6 +914,51 @@ export default function App() {
           /* 2. LOADED INVOICE VIEW: Dashboard and Product List */
           <div className="space-y-4 animate-in fade-in duration-200">
             
+            {/* HERO BAR: Compartir con Mamá por WhatsApp (Primary Feature for Brother) */}
+            <div className="no-print bg-gradient-to-r from-emerald-800 via-teal-800 to-emerald-900 text-white rounded-3xl p-4 sm:p-5 shadow-lg shadow-emerald-950/20 border border-emerald-600/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">📲</span>
+                  <h3 className="text-sm font-extrabold text-white">
+                    Compartir este pedido listo con Mamá
+                  </h3>
+                  {isCloudSaved && (
+                    <span className="text-[10px] bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                      <Check size={10} /> En la Nube
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-emerald-200/90 leading-snug">
+                  Mándale el enlace por WhatsApp para que ella solo lo abra en su celular y marque los precios.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleSaveToCloud}
+                  disabled={isSavingToCloud}
+                  className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold py-2.5 px-3 rounded-2xl border border-white/20 transition-all active:scale-95 disabled:opacity-50"
+                  title="Guardar en la nube"
+                >
+                  {isSavingToCloud ? (
+                    <Loader2 size={15} className="animate-spin text-emerald-300" />
+                  ) : (
+                    <Cloud size={15} className={isCloudSaved ? 'text-emerald-300' : 'text-white'} />
+                  )}
+                  <span>{isCloudSaved ? 'Guardada' : 'Guardar Nube'}</span>
+                </button>
+
+                <button
+                  onClick={handleShareWithMomWhatsApp}
+                  disabled={isSavingToCloud}
+                  className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-white text-xs font-black py-2.5 px-4 rounded-2xl shadow-md shadow-emerald-950/30 transition-all active:scale-95"
+                >
+                  <MessageCircle size={16} className="fill-white stroke-none" />
+                  <span>Compartir WhatsApp</span>
+                </button>
+              </div>
+            </div>
+
             {/* KPI Cards (Inversión, Venta, Utilidad, Marcados) */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 no-print">
               <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs space-y-1">
@@ -1148,27 +1386,139 @@ export default function App() {
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <button
+                onClick={handleShareWithMomWhatsApp}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black text-xs px-3 sm:px-3.5 py-2.5 rounded-2xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
+                title="Compartir con Mamá por WhatsApp"
+              >
+                <MessageCircle size={15} className="fill-white stroke-none" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
+
               <button
                 onClick={handleExportPDF}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-rose-700 to-red-800 hover:from-rose-600 hover:to-red-700 text-white font-black text-xs px-3.5 py-2.5 rounded-2xl shadow-md shadow-rose-950/20 active:scale-95 transition-all"
+                className="flex items-center gap-1 bg-gradient-to-r from-rose-700 to-red-800 hover:from-rose-600 hover:to-red-700 text-white font-black text-xs px-2.5 sm:px-3.5 py-2.5 rounded-2xl shadow-md shadow-rose-950/20 active:scale-95 transition-all"
                 title="Descargar en PDF organizado"
               >
-                <Download size={15} />
+                <Download size={14} />
                 <span>PDF</span>
               </button>
 
               <button
                 onClick={handleExportExcel}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs px-3.5 py-2.5 rounded-2xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
+                className="flex items-center gap-1 bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs px-2.5 sm:px-3.5 py-2.5 rounded-2xl shadow-md shadow-emerald-950/20 active:scale-95 transition-all"
                 title="Descargar en Excel"
               >
-                <FileSpreadsheet size={15} />
+                <FileSpreadsheet size={14} />
                 <span>Excel</span>
               </button>
             </div>
           </div>
         </footer>
+      )}
+
+      {/* CLOUD INVOICE HISTORY MODAL */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 no-print animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100 overflow-hidden">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                  <Cloud size={20} className="stroke-[2.4]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 leading-tight">
+                    Historial de Facturas en la Nube
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Pedidos respaldados en Firebase Firestore
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Invoices List */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-2.5 flex-1">
+              {isLoadingHistory ? (
+                <div className="py-12 text-center space-y-2 text-slate-400">
+                  <Loader2 size={32} className="animate-spin text-emerald-600 mx-auto" />
+                  <p className="text-xs font-semibold">Cargando facturas guardadas...</p>
+                </div>
+              ) : historyList.length === 0 ? (
+                <div className="py-12 text-center space-y-2">
+                  <span className="text-3xl">☁️</span>
+                  <p className="text-sm font-bold text-slate-700">Aún no hay facturas guardadas en la nube</p>
+                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                    Cuando tu hermano o tu mamá carguen una factura, toquen el botón "Guardar Nube" o "Compartir WhatsApp" para archivarla aquí.
+                  </p>
+                </div>
+              ) : (
+                historyList.map((inv) => (
+                  <div
+                    key={inv.id}
+                    onClick={() => handleSelectHistoricalInvoice(inv)}
+                    className="p-3.5 bg-slate-50 hover:bg-emerald-50/60 rounded-2xl border border-slate-200/80 hover:border-emerald-500 cursor-pointer transition-all space-y-2 group"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-mono-num font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-200">
+                            #{inv.id}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {inv.createdAt?.toDate ? inv.createdAt.toDate().toLocaleDateString('es-CO') : (inv.updatedAt ? new Date(inv.updatedAt).toLocaleDateString('es-CO') : '')}
+                          </span>
+                        </div>
+                        <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-emerald-900 leading-snug">
+                          {inv.title}
+                        </h4>
+                      </div>
+
+                      <button
+                        onClick={(e) => handleDeleteInvoice(e, inv.id)}
+                        className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="Eliminar de la nube"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60 text-slate-500">
+                      <span>{inv.itemsCount || inv.rawItems?.length || 0} productos</span>
+                      <div className="space-x-2">
+                        <span>Costo: <b className="text-slate-800">{formatCOP(inv.totalCost)}</b></span>
+                        <span className="text-emerald-700 font-bold">Venta: {formatCOP(inv.totalProjectedSale)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-500 font-medium">
+                {historyList.length} pedidos archivados
+              </span>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
 
       {/* PWA Install Guide Modal */}
